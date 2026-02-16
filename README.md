@@ -105,7 +105,13 @@ Built on [picoclaw](https://github.com/sipeed/picoclaw) — a thin Go HTTP layer
 
 ## Home Assistant Integration
 
-See `ha-integration/` for a custom Home Assistant conversation agent that forwards messages to the assistant.
+The project includes a custom integration for [Home Assistant](https://github.com/home-assistant/core) that registers the assistant as a conversation agent. This lets you talk to the assistant through Home Assistant's UI, voice pipelines, and automations — turning it into a smart home copilot.
+
+See `ha-integration/` for the integration source. Once running (`docker compose up -d`), add it from Settings > Devices & Services in Home Assistant.
+
+## Roadmap
+
+- [ ] **LiteLLM proxy** — Add a [LiteLLM](https://github.com/BerriAI/litellm) container as an OpenAI-compatible proxy so the assistant can use any LLM provider (Anthropic, Gemini, Ollama, Azure, etc.) without changing agent config
 
 ## License
 
