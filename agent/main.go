@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/gofiber/fiber/v3"
 	"github.com/sipeed/picoclaw/pkg/agent"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
@@ -39,9 +39,9 @@ func main() {
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
 
 	// Start agent loop in background
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go agentLoop.Run(ctx)
+	agentCtx, agentCancel := context.WithCancel(context.Background())
+	defer agentCancel()
+	go agentLoop.Run(agentCtx)
 
 	// HTTP server config from environment
 	port := os.Getenv("PORT")
@@ -53,37 +53,39 @@ func main() {
 		host = "0.0.0.0"
 	}
 	apiKey := os.Getenv("ASSISTANT_API_KEY")
-
 	addr := fmt.Sprintf("%s:%s", host, port)
-	handler := NewHTTPHandler(agentLoop, apiKey)
 
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      handler,
+	// Create Fiber app
+	app := fiber.New(fiber.Config{
+		BodyLimit:    1 << 20, // 1 MB
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 300 * time.Second,
-	}
+	})
 
-	// Start HTTP server
-	go func() {
-		log.Printf("HTTP server listening on %s", addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP server error: %v", err)
-		}
-	}()
+	// Register routes
+	RegisterRoutes(app, agentLoop, apiKey)
 
 	// Graceful shutdown on SIGINT/SIGTERM
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	go func() {
+		<-sigChan
+		log.Println("Shutting down...")
+		cancel()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+		app.ShutdownWithContext(shutdownCtx)
+	}()
 
-	log.Println("Shutting down...")
-	cancel()
+	log.Printf("HTTP server listening on %s", addr)
+	if err := app.Listen(addr, fiber.ListenConfig{GracefulContext: ctx}); err != nil {
+		log.Fatalf("HTTP server error: %v", err)
+	}
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-	srv.Shutdown(shutdownCtx)
-
+	agentCancel()
 	agentLoop.Stop()
 	log.Println("Stopped")
 }

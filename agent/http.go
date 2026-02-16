@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"regexp"
 	"sync"
+
+	"github.com/gofiber/fiber/v3"
 )
 
 // AgentProcessor is the interface for synchronous message processing.
@@ -31,60 +31,46 @@ type chatResponse struct {
 	ConversationID string `json:"conversation_id"`
 }
 
-// HTTPHandler provides the HTTP API for the assistant.
-type HTTPHandler struct {
+// chatHandler holds per-endpoint state for the chat route.
+type chatHandler struct {
 	agent     AgentProcessor
 	apiKey    string
 	sem       chan struct{}
 	sessionMu sync.Map // per-session mutexes: map[string]*sync.Mutex
 }
 
-// NewHTTPHandler creates an http.Handler with health and chat endpoints.
-func NewHTTPHandler(agent AgentProcessor, apiKey string) http.Handler {
-	h := &HTTPHandler{
+// RegisterRoutes wires up health and chat endpoints on the Fiber app.
+func RegisterRoutes(app *fiber.App, agent AgentProcessor, apiKey string) {
+	h := &chatHandler{
 		agent:  agent,
 		apiKey: apiKey,
 		sem:    make(chan struct{}, maxConcurrentRequests),
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/health", h.healthHandler)
-	mux.HandleFunc("/api/chat", h.chatHandler)
-	return mux
+	app.Get("/api/health", healthHandler)
+	app.Post("/api/chat", h.handleChat)
 }
 
-func (h *HTTPHandler) healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+func healthHandler(c fiber.Ctx) error {
+	return c.JSON(fiber.Map{"status": "ok"})
 }
 
-func (h *HTTPHandler) chatHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *chatHandler) handleChat(c fiber.Ctx) error {
 	// Bearer token authentication (skip if no key configured)
 	if h.apiKey != "" {
-		auth := r.Header.Get("Authorization")
+		auth := c.Get("Authorization")
 		if auth != "Bearer "+h.apiKey {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})
 		}
 	}
 
-	// Limit request body to 1 MB
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-
 	var req chatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
-		return
+	if err := c.Bind().JSON(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid request body"})
 	}
 
 	if req.Message == "" {
-		http.Error(w, `{"error":"message is required"}`, http.StatusBadRequest)
-		return
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "message is required"})
 	}
 
 	// Validate conversation_id
@@ -93,8 +79,7 @@ func (h *HTTPHandler) chatHandler(w http.ResponseWriter, r *http.Request) {
 		conversationID = "default"
 	}
 	if !validConversationID.MatchString(conversationID) {
-		http.Error(w, `{"error":"invalid conversation_id"}`, http.StatusBadRequest)
-		return
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid conversation_id"})
 	}
 	sessionKey := fmt.Sprintf("http:%s", conversationID)
 
@@ -103,8 +88,7 @@ func (h *HTTPHandler) chatHandler(w http.ResponseWriter, r *http.Request) {
 	case h.sem <- struct{}{}:
 		defer func() { <-h.sem }()
 	default:
-		http.Error(w, `{"error":"server busy"}`, http.StatusServiceUnavailable)
-		return
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"error": "server busy"})
 	}
 
 	// Per-session mutex prevents race conditions in session history
@@ -113,15 +97,13 @@ func (h *HTTPHandler) chatHandler(w http.ResponseWriter, r *http.Request) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	response, err := h.agent.ProcessDirect(r.Context(), req.Message, sessionKey)
+	response, err := h.agent.ProcessDirect(c.Context(), req.Message, sessionKey)
 	if err != nil {
 		log.Printf("ProcessDirect error (session=%s): %v", sessionKey, err)
-		http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
-		return
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "internal server error"})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(chatResponse{
+	return c.JSON(chatResponse{
 		Response:       response,
 		ConversationID: conversationID,
 	})
