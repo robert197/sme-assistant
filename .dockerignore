@@ -1,0 +1,27 @@
+# Version control
+.git
+.gitignore
+
+# Old artifacts (deleted but exclude if remnants exist)
+.pi
+server
+build.sh
+
+# Environment and secrets
+.env
+
+# Documentation and non-build files
+README.md
+docs
+examples
+
+# Runtime data (bind-mounted, not baked in)
+data
+ha-config
+ha-integration
+
+# OS files
+.DS_Store
+*.tgz
+.ruff_cache
+__pycache__

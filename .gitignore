@@ -1,0 +1,22 @@
+# Agent (Go build artifacts)
+agent/sme-assistant
+
+# Python
+__pycache__/
+*.pyc
+.ruff_cache/
+
+# Home Assistant runtime data
+ha-config/
+
+# Environment and secrets
+.env
+
+# Build artifacts and packages
+*.tgz
+
+# Runtime data
+data/
+
+# OS files
+.DS_Store

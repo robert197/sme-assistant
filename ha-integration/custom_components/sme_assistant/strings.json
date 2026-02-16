@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SME Assistant",
+        "description": "Connect to your SME Assistant instance.",
+        "data": {
+          "url": "URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the SME Assistant."
+    }
+  }
+}

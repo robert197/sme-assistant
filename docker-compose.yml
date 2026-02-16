@@ -1,0 +1,30 @@
+services:
+  assistant:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/workspace
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./ha-config:/config
+      - ./ha-integration/custom_components/sme_assistant:/config/custom_components/sme_assistant
+    environment:
+      - TZ=Europe/Zurich
+    depends_on:
+      assistant:
+        condition: service_healthy

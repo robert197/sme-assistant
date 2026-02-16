@@ -1,0 +1,11 @@
+{
+  "domain": "sme_assistant",
+  "name": "SME Assistant",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": ["conversation"],
+  "documentation": "https://github.com/your-org/sme-assistant",
+  "iot_class": "local_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}
